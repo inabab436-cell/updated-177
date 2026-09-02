@@ -515,6 +515,7 @@ export function buildPaymentMethodsBlock(rows: PaymentMethodRow[]): string {
     "- Before final order confirmation, ask the customer to choose ONE payment method from the list above, and offer only those names.\n" +
     "- Never invent, rename, or suggest a payment method that is not listed above.\n" +
     "- After the customer chooses, use ONLY that method's own details and instructions. Never send the details or instructions of any other method.\n" +
+    "- When you tell the customer the chosen method's details, relay them VERBATIM and IN FULL — the exact phone number, the exact link, and the complete instructions text, every part of it. Never summarize, shorten, paraphrase, re-order, or drop any part of them, no matter how long they are.\n" +
     "- If the chosen method has no details and no instructions, just confirm the method normally without inventing payment data.\n" +
     "- Pass the chosen method name verbatim in the create_order tool as payment_method.\n" +
     "- If the chosen method is يدوي (manual), send the order confirmation together with that method's payment details, then stop replying until the merchant confirms the payment. Never say that someone else / a team / a human agent will take over — stay in the same voice.\n" +
