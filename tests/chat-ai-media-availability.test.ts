@@ -31,7 +31,7 @@ describe("product media availability gate (point 5)", () => {
 
   it("gates the matched-product fallback through showableProductId", () => {
     expect(source).toContain("showableProductId(merchantData.products, matchedProductId)");
-    expect(source).toMatch(/fallbackMatchedId &&\s*\n\s*agentAttachments\.length === 0/);
+    expect(source).toMatch(/fallbackMatchedId && agentAttachments\.length === 0/);
   });
 
   it("gates the named-product fallback on stock", () => {
