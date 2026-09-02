@@ -2105,7 +2105,7 @@ export const Route = createFileRoute("/api/chat-ai")({
             function: {
               name: "attach_product_media",
               description:
-                "Attach up to 4 saved images of a specific approved product to your reply, so the customer can see it. Use ONLY product_id values from <inventory> or [MATCHED_PRODUCT]. Never invent an id. Only variants that currently have stock are ever attached: photos of an out-of-stock colour/size are filtered out for you. When the customer asks about (or sent an image of) a specific colour, pass that colour in the \"color\" argument exactly as it appears in <inventory>. If that colour has no stock, the tool attaches the in-stock colours of the SAME model instead and tells you which — then confirm the model exists, name those in-stock colours, and mention the unavailable one only because the customer raised it. Never say the product does not exist while another variant of it still has stock, and never bring up an out-of-stock variant the customer never asked about. Call it in addition to text whenever you identify, recommend, compare, or discuss a specific product and its image can help the purchase; do not wait for an explicit photo request.",
+                "Attach up to 4 saved images of a specific approved product to your reply, so the customer can see it. Use ONLY product_id values from <inventory> or [MATCHED_PRODUCT]. Never invent an id. Only variants that currently have stock are ever attached: photos of an out-of-stock colour/size are filtered out for you. When the customer asks about (or sent an image of) a specific colour, pass that colour in the \"color\" argument exactly as it appears in <inventory>. If that colour has no stock, the tool attaches the in-stock colours of the SAME model instead and tells you which — then confirm the model exists, name those in-stock colours, and mention the unavailable one only because the customer raised it. Never say the product does not exist while another variant of it still has stock, and never bring up an out-of-stock variant the customer never asked about. YOU decide when a photo helps, from the stage of the conversation: call it — without waiting for an explicit request — when seeing the product helps the customer decide, when you present it, recommend it, compare it, or offer it as an alternative. Do NOT call it just because a product was named or is in context, and do NOT call it once the customer has moved past the visual decision (confirming name/phone/address/payment, or finalising an order). Photos you already sent earlier in this conversation are not resent; the tool tells you when that happens so you can refer to them instead.",
               parameters: {
                 type: "object",
                 properties: {
@@ -3803,6 +3803,26 @@ export const Route = createFileRoute("/api/chat-ai")({
           // decided to share.
           const agentAttachments: Array<Record<string, unknown>> = [];
 
+          // Images this conversation ALREADY showed the customer. Re-sending
+          // the very same photo adds nothing, so it is skipped unless the
+          // customer explicitly asks to see it again in this turn.
+          const alreadySentImageKeys = new Set<string>();
+          for (const m of (history ?? []) as MessageRow[]) {
+            const list = Array.isArray((m as any).attachments)
+              ? ((m as any).attachments as any[])
+              : [];
+            for (const a of list) {
+              if (!a || a.source !== "agent") continue;
+              const key = String(a.storage_path ?? a.url ?? "").trim();
+              if (key) alreadySentImageKeys.add(key);
+            }
+          }
+          // The only two signals that the customer is explicitly asking to SEE
+          // something right now. Everything else is the agent's own judgement.
+          const customerWantsToSee =
+            customerAskedForProductPhoto(message) || customerAttachments.length > 0;
+
+
           /** Normalize an Arabic/Latin colour label for loose comparison. */
           function normalizeColorLabel(v: unknown): string {
             return String(v ?? "")
@@ -3953,6 +3973,29 @@ export const Route = createFileRoute("/api/chat-ai")({
                 };
               }
 
+              // Already-shown photos are not resent unless the customer asked
+              // to see it again in this turn.
+              if (!customerWantsToSee) {
+                const fresh = rows.filter(
+                  (r) => !alreadySentImageKeys.has(String(r.url ?? "").trim()),
+                );
+                if (fresh.length === 0 && rows.length > 0) {
+                  return {
+                    result: {
+                      ok: true,
+                      attached_count: 0,
+                      already_shown: true,
+                      in_stock_variants: liveVariants,
+                      message:
+                        "You already sent these exact photos of this product earlier in this conversation, so nothing new is attached. Refer to the photos he already has instead of sending them again, and move the conversation one step forward.",
+                    },
+                  };
+                }
+                rows = fresh;
+              }
+
+
+
 
 
               const attached: string[] = [];
@@ -4074,21 +4117,26 @@ export const Route = createFileRoute("/api/chat-ai")({
 
           // ---------------------------------------------------------------
           // FAST PHOTO PATH (no AI involved).
-          // The customer named a product that exists in THIS turn's fresh
-          // snapshot and is showable, and asked for its photo. Resolving the
-          // media is pure database work, so it happens NOW — before the first
-          // model call — instead of after the whole tool loop. The images are
-          // therefore already part of the model's context on iteration 1, so
-          // the draft text is written knowing they are being sent and the
-          // extra "attachment-aware regeneration" call never fires.
+          // ONLY for the unambiguous case: the customer explicitly asked to
+          // see a product (or sent a photo himself) and named a product that
+          // exists in THIS turn's fresh snapshot. Resolving the media is pure
+          // database work, so it happens NOW — before the first model call —
+          // and the images are already part of the model's context on
+          // iteration 1, so the text is written knowing they are being sent.
+          // Every other case is left to the agent's own judgement through the
+          // attach_product_media tool: merely naming a product is NOT a reason
+          // to send a photo.
           {
-            const named = findNamedProduct(
-              [message],
-              merchantData.products as any[],
-              (p: any) => isProductShowable(p),
-            ) as (typeof merchantData.products)[number] | null;
+            const named = customerWantsToSee
+              ? (findNamedProduct(
+                  [message],
+                  merchantData.products as any[],
+                  (p: any) => isProductShowable(p),
+                ) as (typeof merchantData.products)[number] | null)
+              : null;
 
             if (named) {
+
               const color = requestedColorFor(named.id);
               try {
                 await executeAttachProductMedia(
@@ -4395,40 +4443,19 @@ export const Route = createFileRoute("/api/chat-ai")({
           }
 
           // Media attachment belongs to the agent (`attach_product_media`).
-          // These fallbacks only ever fire for a product that is present in
-          // THIS turn's fresh snapshot and still has stock — never for a
-          // [SOLD_OUT] product.
+          // The ONLY deterministic safety net left is the explicit one: the
+          // customer asked to see a product (or sent a photo of it) and the
+          // agent did not attach anything. A product merely being mentioned in
+          // the turn is deliberately NOT a trigger — that produced photos with
+          // no relation to the current step of the sale.
           const fallbackMatchedId = showableProductId(merchantData.products, matchedProductId);
-          if (
-            fallbackMatchedId &&
-            agentAttachments.length === 0 &&
-            (customerAskedForProductPhoto(message) || customerAttachments.length > 0)
-          ) {
+          if (fallbackMatchedId && agentAttachments.length === 0 && customerWantsToSee) {
             const color = requestedColorFor(fallbackMatchedId);
             await executeAttachProductMedia(
               JSON.stringify({ product_id: fallbackMatchedId, limit: 4, ...(color ? { color } : {}) }),
             );
           }
 
-          // Deterministic sales fallback: the product the TURN is about — the
-          // one the customer named, or the one the agent's own draft reply is
-          // talking about — is shown now if the model forgot the media tool.
-          // Matching the draft reply too is what makes the text and the photo
-          // agree: the agent can no longer write "ده شكله" with nothing sent.
-          if (agentAttachments.length === 0) {
-            const named = findNamedProduct(
-              [message, reply],
-              merchantData.products as any[],
-              (p: any) => isProductShowable(p),
-            ) as (typeof merchantData.products)[number] | null;
-
-            if (named) {
-              const color = requestedColorFor(named.id);
-              await executeAttachProductMedia(
-                JSON.stringify({ product_id: named.id, limit: 4, ...(color ? { color } : {}) }),
-              );
-            }
-          }
 
           // ---------------------------------------------------------------
           // TEXT <-> ATTACHMENT AWARENESS
