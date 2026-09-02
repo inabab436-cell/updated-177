@@ -3973,6 +3973,29 @@ export const Route = createFileRoute("/api/chat-ai")({
                 };
               }
 
+              // Already-shown photos are not resent unless the customer asked
+              // to see it again in this turn.
+              if (!customerWantsToSee) {
+                const fresh = rows.filter(
+                  (r) => !alreadySentImageKeys.has(String(r.url ?? "").trim()),
+                );
+                if (fresh.length === 0 && rows.length > 0) {
+                  return {
+                    result: {
+                      ok: true,
+                      attached_count: 0,
+                      already_shown: true,
+                      in_stock_variants: liveVariants,
+                      message:
+                        "You already sent these exact photos of this product earlier in this conversation, so nothing new is attached. Refer to the photos he already has instead of sending them again, and move the conversation one step forward.",
+                    },
+                  };
+                }
+                rows = fresh;
+              }
+
+
+
 
 
               const attached: string[] = [];
