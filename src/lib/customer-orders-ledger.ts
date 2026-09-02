@@ -1,4 +1,3 @@
-import { isCollectedOnDelivery } from "@/lib/order-status-gate";
 /**
  * CUSTOMER ORDERS LEDGER
  * ======================
@@ -40,7 +39,6 @@ export interface LedgerOrderRow {
   payment_status?: string | null;
   payment_method?: string | null;
   payment_confirmed_at?: string | null;
-  payment_timing?: string | null;
   created_at?: string | null;
   prepared_at?: string | null;
   shipped_at?: string | null;
@@ -144,8 +142,6 @@ function renderShipping(
 export interface LedgerOptions {
   zones?: ShippingZone[];
   nowIso?: string;
-  /** Merchant methods whose money is collected at delivery (never "paid"). */
-  onDeliveryMethods?: string[];
 }
 
 /**
@@ -159,14 +155,12 @@ export function buildCustomerOrdersLedger(
   const list = (rows ?? []).filter(Boolean);
   const nowIso = options.nowIso ?? new Date().toISOString();
   const zones = options.zones ?? [];
-  const onDeliveryMethods = options.onDeliveryMethods ?? [];
   if (!list.length) return "";
 
   const blocks = list.map((row, i) => {
     const number = clean(row.order_number) || `(no number, order #${i + 1})`;
     const status = clean(row.status) || "new";
-    const onDelivery = isCollectedOnDelivery(row, onDeliveryMethods);
-    const paid = String(row.payment_status ?? "confirmed") !== "pending" && !onDelivery;
+    const paid = String(row.payment_status ?? "confirmed") !== "pending";
     const lines: string[] = [
       `ORDER ${i + 1} — Order Number: ${number}`,
       `  - current status (as last updated by the brand owner): ${STATUS_LABEL[status] ?? status}`,
@@ -180,11 +174,7 @@ export function buildCustomerOrdersLedger(
     if (delivered) lines.push(`  - delivered at: ${delivered}`);
     lines.push(
       `  - payment method: ${clean(row.payment_method) || "not recorded"} | payment: ${
-        onDelivery
-          ? "NOT PAID — cash on delivery: the customer pays the courier at delivery. Never call this order paid."
-          : paid
-            ? "CONFIRMED (paid — the store team confirmed it)"
-            : "PENDING (not confirmed yet)"
+        paid ? "CONFIRMED (paid — the store team confirmed it)" : "PENDING (not confirmed yet)"
       }` +
         (paid && stampWithAge(row.payment_confirmed_at, nowIso)
           ? ` | confirmed at: ${stampWithAge(row.payment_confirmed_at, nowIso)}`

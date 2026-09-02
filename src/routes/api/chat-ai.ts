@@ -1642,16 +1642,6 @@ export const Route = createFileRoute("/api/chat-ai")({
 
           const paymentMethods = await paymentMethodsPromise;
           const paymentBlock = buildPaymentMethodsBlock(paymentMethods);
-          // Methods whose money is collected at delivery: an order placed with
-          // one of them is NOT paid, whatever its payment_status says.
-          const onDeliveryMethodNames = paymentMethods
-            .filter((m) => m.on_delivery)
-            .map((m) => m.name);
-          const { describeOrderPaymentState, isCollectedOnDelivery } = await import(
-            "@/lib/order-status-gate"
-          );
-          const isCollectedOnDeliveryRow = (o: any) =>
-            isCollectedOnDelivery(o, onDeliveryMethodNames);
 
           const recentOrders = await recentOrdersPromise;
           let customerContext = buildCustomerContext(customer, recentOrders);
@@ -1676,9 +1666,7 @@ export const Route = createFileRoute("/api/chat-ai")({
                 const first = items.length ? items[0] : null;
                 const productName =
                   first && typeof first.product_name === "string" ? first.product_name : "-";
-                const paid =
-                  String(o.payment_status ?? "confirmed") !== "pending" &&
-                  !isCollectedOnDeliveryRow(o);
+                const paid = String(o.payment_status ?? "confirmed") !== "pending";
                 const pendingLines = hasPendingAddition(o as any)
                   ? pendingItemsOf(o as any)
                       .map((it) =>
@@ -1691,7 +1679,7 @@ export const Route = createFileRoute("/api/chat-ai")({
                 return (
                   `Order Number: ${o.order_number ?? "-"} | Product: ${productName} | Status: ${o.status ?? "-"}` +
                   ` | Payment method: ${o.payment_method ?? "-"}` +
-                  ` | Payment: ${describeOrderPaymentState(o as any, onDeliveryMethodNames)}` +
+                  ` | Payment: ${paid ? "CONFIRMED (paid)" : "PENDING (not paid yet)"}` +
                   (o.total_price != null ? ` | Total (paid part): ${o.total_price}` : "") +
                   (pendingLines
                     ? ` | UNPAID ADDITION (waiting for payment confirmation): ${pendingLines} | Addition amount: ${pendingTotalsOf(o as any).total}`
@@ -1699,9 +1687,7 @@ export const Route = createFileRoute("/api/chat-ai")({
                 );
               });
               const justConfirmed = rows.filter(
-                (o) =>
-                  String(o.payment_status ?? "confirmed") !== "pending" &&
-                  !isCollectedOnDeliveryRow(o),
+                (o) => String(o.payment_status ?? "confirmed") !== "pending",
               );
               const withPendingAddition = rows.filter((o) => hasPendingAddition(o as any));
               existingOrdersBlock =
@@ -1738,7 +1724,6 @@ export const Route = createFileRoute("/api/chat-ai")({
               customerOrdersLedgerBlock = buildCustomerOrdersLedger(ledgerRows as any, {
                 zones: merchantData.shipping as any,
                 nowIso: new Date().toISOString(),
-                onDeliveryMethods: onDeliveryMethodNames,
               });
             }
           } catch (e) {
