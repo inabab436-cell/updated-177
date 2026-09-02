@@ -50,6 +50,7 @@ const DEFAULT_METHODS = [
   {
     name: "فودافون كاش",
     enabled: true,
+    on_delivery: false,
     behavior: "manual",
     detail_type: "phone",
     detail_value: "",
@@ -60,6 +61,7 @@ const DEFAULT_METHODS = [
   {
     name: "اتصالات كاش",
     enabled: true,
+    on_delivery: false,
     behavior: "manual",
     detail_type: "phone",
     detail_value: "",
@@ -70,6 +72,7 @@ const DEFAULT_METHODS = [
   {
     name: "إنستا باي",
     enabled: true,
+    on_delivery: false,
     behavior: "manual",
     detail_type: "text",
     detail_value: "",
