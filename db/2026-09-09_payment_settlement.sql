@@ -59,3 +59,25 @@ update public.orders o
    and pm.on_delivery = true
    and o.payment_method is not null
    and lower(trim(o.payment_method)) = lower(trim(pm.name));
+
+-- New accounts: the default cash-on-delivery method is marked as collected on
+-- delivery from the start.
+create or replace function public.seed_default_payment_methods(_user_id uuid)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.payment_methods
+    (user_id, name, enabled, behavior, detail_type, detail_value, instructions, sort_order, on_delivery)
+  select _user_id, v.name, true, v.behavior, v.detail_type, '', '', v.sort_order, v.on_delivery
+  from (values
+    ('الدفع عند الاستلام', 'auto',   'none',  0, true),
+    ('فودافون كاش',        'manual', 'phone', 1, false),
+    ('اتصالات كاش',        'manual', 'phone', 2, false),
+    ('إنستا باي',          'manual', 'text',  3, false)
+  ) as v(name, behavior, detail_type, sort_order, on_delivery)
+  where not exists (
+    select 1 from public.payment_methods pm where pm.user_id = _user_id
+  );
+$$;
