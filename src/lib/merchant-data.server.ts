@@ -421,6 +421,11 @@ export interface PaymentMethodRow {
   detail_value: string;
   instructions: string;
   payment_template: string;
+  /** Money is collected at delivery — such an order is never "paid". */
+  on_delivery: boolean;
+  payment_scope: "full" | "partial" | "both";
+  partial_type: "percent" | "amount";
+  partial_value: number;
 }
 
 export async function loadEnabledPaymentMethods(
@@ -432,7 +437,7 @@ export async function loadEnabledPaymentMethods(
     const { data } = await admin
       .from("payment_methods")
       .select(
-        "id, name, behavior, detail_type, detail_value, instructions, payment_template",
+        "id, name, behavior, detail_type, detail_value, instructions, payment_template, on_delivery, payment_scope, partial_type, partial_value",
       )
       .eq("user_id", userId)
       .eq("enabled", true)
@@ -447,11 +452,18 @@ export async function loadEnabledPaymentMethods(
       detail_value: clean(r.detail_value),
       instructions: String(r.instructions ?? "").trim(),
       payment_template: String(r.payment_template ?? "").trim(),
+      on_delivery: Boolean(r.on_delivery),
+      payment_scope: ["partial", "both"].includes(r.payment_scope)
+        ? r.payment_scope
+        : "full",
+      partial_type: r.partial_type === "amount" ? "amount" : "percent",
+      partial_value: Number(r.partial_value ?? 0) || 0,
     }));
   } catch {
     return [];
   }
 }
+
 
 /**
  * The exact confirmation message the agent must send after an order, based on
@@ -500,6 +512,12 @@ export function buildPaymentMethodsBlock(rows: PaymentMethodRow[]): string {
   const body = rows
     .map((r) => {
       const lines = [`طريقة الدفع: ${r.name}`, `النوع: ${r.behavior === "manual" ? "يدوي" : "تلقائي"}`];
+      lines.push(
+        r.on_delivery
+          ? "توقيت التحصيل: الدفع عند الاستلام — العميل يدفع للمندوب وقت التسليم، والطلب غير مدفوع قبل ذلك."
+          : "توقيت التحصيل: دفع أونلاين قبل التسليم.",
+      );
+      lines.push(describeSettlement(r));
       if (r.detail_type !== "none" && r.detail_value) {
         lines.push(`${DETAIL_LABEL[r.detail_type] ?? "التفاصيل"}: ${r.detail_value}`);
       }
@@ -519,6 +537,23 @@ export function buildPaymentMethodsBlock(rows: PaymentMethodRow[]): string {
     "- If the chosen method has no details and no instructions, just confirm the method normally without inventing payment data.\n" +
     "- Pass the chosen method name verbatim in the create_order tool as payment_method.\n" +
     "- If the chosen method is يدوي (manual), send the order confirmation together with that method's payment details, then stop replying until the merchant confirms the payment. Never say that someone else / a team / a human agent will take over — stay in the same voice.\n" +
-    "- If the chosen method is تلقائي (auto), keep the conversation going normally.\n"
+    "- If the chosen method is تلقائي (auto), keep the conversation going normally.\n" +
+    "- SETTLEMENT (full / partial) is fixed per method by the merchant and written on its line above. Say EXACTLY what is written there and nothing else: if the method allows FULL payment only, tell the customer the full amount is required and never offer a deposit, an instalment or any partial figure; if it allows a PARTIAL payment, state the exact recorded amount or percentage verbatim; if it allows BOTH, offer exactly those two options. Never assume, round, convert, invent or negotiate any figure that is not recorded above.\n" +
+    "- CASH ON DELIVERY IS NOT A PAID ORDER. A method marked «الدفع عند الاستلام» means the money is collected from the customer when the order is delivered. Never say the order is paid, never thank the customer for a payment, never say a payment was received or confirmed, and never ask for a transfer screenshot for it. Say plainly that the amount is due to the courier on delivery.\n"
   );
+}
+
+function describeSettlement(r: PaymentMethodRow): string {
+  if (r.on_delivery) return "قيمة الدفع: المبلغ كامل يُحصَّل عند الاستلام.";
+  const partial =
+    r.partial_type === "percent"
+      ? `${r.partial_value}% من إجمالي الطلب`
+      : `${r.partial_value} (مبلغ ثابت)`;
+  if (r.payment_scope === "partial") {
+    return `قيمة الدفع: دفع جزئي فقط بمقدار ${partial}، والباقي عند الاستلام. لا تعرض دفعًا كليًا لهذه الطريقة.`;
+  }
+  if (r.payment_scope === "both") {
+    return `قيمة الدفع: العميل يختار إما دفع المبلغ كاملًا أو دفع جزئي بمقدار ${partial} والباقي عند الاستلام.`;
+  }
+  return "قيمة الدفع: دفع كلي فقط — المبلغ كامل قبل التسليم. لا تعرض دفعًا جزئيًا ولا مقدَّمًا.";
 }

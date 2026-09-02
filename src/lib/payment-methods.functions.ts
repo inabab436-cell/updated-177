@@ -11,6 +11,9 @@ import { z } from "zod";
 
 export type PaymentBehavior = "auto" | "manual";
 export type PaymentDetailType = "none" | "phone" | "url" | "text";
+/** Which settlement the merchant allows for an online payment method. */
+export type PaymentScope = "full" | "partial" | "both";
+export type PartialType = "percent" | "amount";
 
 export interface PaymentMethod {
   id: string;
@@ -22,15 +25,21 @@ export interface PaymentMethod {
   instructions: string;
   payment_template: string;
   sort_order: number;
+  /** Money is collected from the customer at delivery — the order is NOT paid. */
+  on_delivery: boolean;
+  payment_scope: PaymentScope;
+  partial_type: PartialType;
+  partial_value: number;
 }
 
 const SELECT =
-  "id, name, enabled, behavior, detail_type, detail_value, instructions, payment_template, sort_order";
+  "id, name, enabled, behavior, detail_type, detail_value, instructions, payment_template, sort_order, on_delivery, payment_scope, partial_type, partial_value";
 
 const DEFAULT_METHODS = [
   {
     name: "الدفع عند الاستلام",
     enabled: true,
+    on_delivery: true,
     behavior: "auto",
     detail_type: "none",
     detail_value: "",
@@ -41,6 +50,7 @@ const DEFAULT_METHODS = [
   {
     name: "فودافون كاش",
     enabled: true,
+    on_delivery: false,
     behavior: "manual",
     detail_type: "phone",
     detail_value: "",
@@ -51,6 +61,7 @@ const DEFAULT_METHODS = [
   {
     name: "اتصالات كاش",
     enabled: true,
+    on_delivery: false,
     behavior: "manual",
     detail_type: "phone",
     detail_value: "",
@@ -61,6 +72,7 @@ const DEFAULT_METHODS = [
   {
     name: "إنستا باي",
     enabled: true,
+    on_delivery: false,
     behavior: "manual",
     detail_type: "text",
     detail_value: "",
@@ -71,11 +83,19 @@ const DEFAULT_METHODS = [
 ];
 
 
+const settlementSchema = {
+  on_delivery: z.boolean().default(false),
+  payment_scope: z.enum(["full", "partial", "both"]).default("full"),
+  partial_type: z.enum(["percent", "amount"]).default("percent"),
+  partial_value: z.number().min(0).max(1000000).default(0),
+};
+
 const detailSchema = z.object({
   detail_type: z.enum(["none", "phone", "url", "text"]).default("none"),
   detail_value: z.string().trim().max(500).default(""),
   instructions: z.string().trim().max(2000).default(""),
   payment_template: z.string().trim().max(2000).default(""),
+  ...settlementSchema,
 });
 
 export const listPaymentMethods = createServerFn({ method: "GET" }).handler(
@@ -136,6 +156,10 @@ export const createPaymentMethod = createServerFn({ method: "POST" })
         detail_value: hasDetail ? data.detail_value : "",
         instructions: data.instructions,
         payment_template: data.payment_template,
+        on_delivery: data.on_delivery,
+        payment_scope: data.on_delivery ? "full" : data.payment_scope,
+        partial_type: data.partial_type,
+        partial_value: data.on_delivery ? 0 : data.partial_value,
         enabled: true,
         sort_order: count ?? 0,
       })
@@ -157,6 +181,10 @@ export const updatePaymentMethod = createServerFn({ method: "POST" })
         detail_value: z.string().trim().max(500).optional(),
         instructions: z.string().trim().max(2000).optional(),
         payment_template: z.string().trim().max(2000).optional(),
+        on_delivery: z.boolean().optional(),
+        payment_scope: z.enum(["full", "partial", "both"]).optional(),
+        partial_type: z.enum(["percent", "amount"]).optional(),
+        partial_value: z.number().min(0).max(1000000).optional(),
       })
       .parse(d),
   )
@@ -172,6 +200,14 @@ export const updatePaymentMethod = createServerFn({ method: "POST" })
     if (data.name !== undefined) patch.name = data.name;
     if (data.instructions !== undefined) patch.instructions = data.instructions;
     if (data.payment_template !== undefined) patch.payment_template = data.payment_template;
+    if (data.on_delivery !== undefined) patch.on_delivery = data.on_delivery;
+    if (data.payment_scope !== undefined) {
+      patch.payment_scope = data.on_delivery ? "full" : data.payment_scope;
+    }
+    if (data.partial_type !== undefined) patch.partial_type = data.partial_type;
+    if (data.partial_value !== undefined) {
+      patch.partial_value = data.on_delivery ? 0 : data.partial_value;
+    }
     if (data.detail_type !== undefined) {
       const value = data.detail_value ?? "";
       const hasDetail = data.detail_type !== "none" && value.length > 0;
