@@ -4117,21 +4117,26 @@ export const Route = createFileRoute("/api/chat-ai")({
 
           // ---------------------------------------------------------------
           // FAST PHOTO PATH (no AI involved).
-          // The customer named a product that exists in THIS turn's fresh
-          // snapshot and is showable, and asked for its photo. Resolving the
-          // media is pure database work, so it happens NOW — before the first
-          // model call — instead of after the whole tool loop. The images are
-          // therefore already part of the model's context on iteration 1, so
-          // the draft text is written knowing they are being sent and the
-          // extra "attachment-aware regeneration" call never fires.
+          // ONLY for the unambiguous case: the customer explicitly asked to
+          // see a product (or sent a photo himself) and named a product that
+          // exists in THIS turn's fresh snapshot. Resolving the media is pure
+          // database work, so it happens NOW — before the first model call —
+          // and the images are already part of the model's context on
+          // iteration 1, so the text is written knowing they are being sent.
+          // Every other case is left to the agent's own judgement through the
+          // attach_product_media tool: merely naming a product is NOT a reason
+          // to send a photo.
           {
-            const named = findNamedProduct(
-              [message],
-              merchantData.products as any[],
-              (p: any) => isProductShowable(p),
-            ) as (typeof merchantData.products)[number] | null;
+            const named = customerWantsToSee
+              ? (findNamedProduct(
+                  [message],
+                  merchantData.products as any[],
+                  (p: any) => isProductShowable(p),
+                ) as (typeof merchantData.products)[number] | null)
+              : null;
 
             if (named) {
+
               const color = requestedColorFor(named.id);
               try {
                 await executeAttachProductMedia(
