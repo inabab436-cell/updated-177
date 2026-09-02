@@ -3803,6 +3803,26 @@ export const Route = createFileRoute("/api/chat-ai")({
           // decided to share.
           const agentAttachments: Array<Record<string, unknown>> = [];
 
+          // Images this conversation ALREADY showed the customer. Re-sending
+          // the very same photo adds nothing, so it is skipped unless the
+          // customer explicitly asks to see it again in this turn.
+          const alreadySentImageKeys = new Set<string>();
+          for (const m of (history ?? []) as MessageRow[]) {
+            const list = Array.isArray((m as any).attachments)
+              ? ((m as any).attachments as any[])
+              : [];
+            for (const a of list) {
+              if (!a || a.source !== "agent") continue;
+              const key = String(a.storage_path ?? a.url ?? "").trim();
+              if (key) alreadySentImageKeys.add(key);
+            }
+          }
+          // The only two signals that the customer is explicitly asking to SEE
+          // something right now. Everything else is the agent's own judgement.
+          const customerWantsToSee =
+            customerAskedForProductPhoto(message) || customerAttachments.length > 0;
+
+
           /** Normalize an Arabic/Latin colour label for loose comparison. */
           function normalizeColorLabel(v: unknown): string {
             return String(v ?? "")
