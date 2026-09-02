@@ -421,6 +421,11 @@ export interface PaymentMethodRow {
   detail_value: string;
   instructions: string;
   payment_template: string;
+  /** Money is collected at delivery — such an order is never "paid". */
+  on_delivery: boolean;
+  payment_scope: "full" | "partial" | "both";
+  partial_type: "percent" | "amount";
+  partial_value: number;
 }
 
 export async function loadEnabledPaymentMethods(
@@ -432,7 +437,7 @@ export async function loadEnabledPaymentMethods(
     const { data } = await admin
       .from("payment_methods")
       .select(
-        "id, name, behavior, detail_type, detail_value, instructions, payment_template",
+        "id, name, behavior, detail_type, detail_value, instructions, payment_template, on_delivery, payment_scope, partial_type, partial_value",
       )
       .eq("user_id", userId)
       .eq("enabled", true)
@@ -447,11 +452,18 @@ export async function loadEnabledPaymentMethods(
       detail_value: clean(r.detail_value),
       instructions: String(r.instructions ?? "").trim(),
       payment_template: String(r.payment_template ?? "").trim(),
+      on_delivery: Boolean(r.on_delivery),
+      payment_scope: ["partial", "both"].includes(r.payment_scope)
+        ? r.payment_scope
+        : "full",
+      partial_type: r.partial_type === "amount" ? "amount" : "percent",
+      partial_value: Number(r.partial_value ?? 0) || 0,
     }));
   } catch {
     return [];
   }
 }
+
 
 /**
  * The exact confirmation message the agent must send after an order, based on
