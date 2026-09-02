@@ -4443,40 +4443,19 @@ export const Route = createFileRoute("/api/chat-ai")({
           }
 
           // Media attachment belongs to the agent (`attach_product_media`).
-          // These fallbacks only ever fire for a product that is present in
-          // THIS turn's fresh snapshot and still has stock — never for a
-          // [SOLD_OUT] product.
+          // The ONLY deterministic safety net left is the explicit one: the
+          // customer asked to see a product (or sent a photo of it) and the
+          // agent did not attach anything. A product merely being mentioned in
+          // the turn is deliberately NOT a trigger — that produced photos with
+          // no relation to the current step of the sale.
           const fallbackMatchedId = showableProductId(merchantData.products, matchedProductId);
-          if (
-            fallbackMatchedId &&
-            agentAttachments.length === 0 &&
-            (customerAskedForProductPhoto(message) || customerAttachments.length > 0)
-          ) {
+          if (fallbackMatchedId && agentAttachments.length === 0 && customerWantsToSee) {
             const color = requestedColorFor(fallbackMatchedId);
             await executeAttachProductMedia(
               JSON.stringify({ product_id: fallbackMatchedId, limit: 4, ...(color ? { color } : {}) }),
             );
           }
 
-          // Deterministic sales fallback: the product the TURN is about — the
-          // one the customer named, or the one the agent's own draft reply is
-          // talking about — is shown now if the model forgot the media tool.
-          // Matching the draft reply too is what makes the text and the photo
-          // agree: the agent can no longer write "ده شكله" with nothing sent.
-          if (agentAttachments.length === 0) {
-            const named = findNamedProduct(
-              [message, reply],
-              merchantData.products as any[],
-              (p: any) => isProductShowable(p),
-            ) as (typeof merchantData.products)[number] | null;
-
-            if (named) {
-              const color = requestedColorFor(named.id);
-              await executeAttachProductMedia(
-                JSON.stringify({ product_id: named.id, limit: 4, ...(color ? { color } : {}) }),
-              );
-            }
-          }
 
           // ---------------------------------------------------------------
           // TEXT <-> ATTACHMENT AWARENESS
